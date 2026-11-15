@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PHÂN LOẠI HỢP CHẤT - THPT MỸ THỌ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0fdfa; /* Light teal background */
+            touch-action: pan-y; /* Prevent zooming, allow vertical scroll only if needed */
+            overflow-x: hidden;
+        }
+
+        .chem-card {
+            touch-action: none; /* Critical for custom drag on mobile */
+            user-select: none;
+            cursor: grab;
+            transition: transform 0.1s;
+        }
+
+        .chem-card:active {
+            cursor: grabbing;
+        }
+
+        .chem-card.dragging {
+            opacity: 0.4;
+        }
+
+        .chem-clone {
+            position: fixed;
+            pointer-events: none; /* So elementFromPoint works through it */
+            z-index: 1000;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            transform: translate(-50%, -50%) scale(1.1); /* Center on finger */
+            margin: 0 !important;
+            transition: none;
+        }
+
+        .drop-zone {
+            transition: all 0.2s ease;
+        }
+
+        .drop-zone.active-hover {
+            box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.2);
+            filter: brightness(0.95);
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        /* Fun animations */
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .pop-anim {
+            animation: pop 0.3s ease-out;
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
+        }
+        .shake-anim {
+            animation: shake 0.4s ease-in-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header & Timer -->
+    <header class="bg-blue-600 text-white shadow-md p-4 sticky top-0 z-10 flex justify-between items-center">
+        <h1 class="text-xl md:text-2xl font-bold tracking-tight">🧪 THPT MỸ THỌ</h1>
+        <div class="flex items-center gap-2 md:gap-4">
+            <button id="resetBtn" class="bg-white hover:bg-gray-200 text-blue-700 p-1.5 md:px-3 md:py-1 rounded-lg font-bold shadow transition-colors text-sm flex items-center gap-1" title="Chơi lại từ đầu">
+                🔄 <span class="hidden md:inline">Chơi lại</span>
+            </button>
+            <div class="text-base md:text-xl font-mono bg-blue-800 px-2 md:px-4 py-1 rounded-full shadow-inner" id="timerDisplay">00.0s</div>
+            <button id="leaderboardBtn" class="bg-yellow-400 hover:bg-yellow-300 text-blue-900 px-2 md:px-3 py-1 rounded-lg font-bold shadow transition-colors text-sm">BXH</button>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-6xl w-full mx-auto p-2 md:p-4 flex flex-col gap-3 md:gap-4">
+        
+        <div class="text-center">
+            <h2 class="text-xl md:text-2xl font-bold text-gray-800 mb-1">Trò chơi Phân loại Hợp chất</h2>
+            <p class="text-gray-600 text-xs md:text-sm">Kéo thả các công thức vào đúng nhóm tương ứng!</p>
+        </div>
+
+        <!-- Game Board: Ergonomic Layout -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 flex-1">
+            
+            <!-- Organic Zone (Left on desktop, Top-Left on mobile) -->
+            <div class="col-span-1 flex flex-col rounded-xl md:rounded-2xl overflow-hidden shadow-lg border-2 md:border-4 border-orange-400 order-1 md:order-1">
+                <div class="bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-extrabold text-center py-2 md:py-4 text-lg md:text-3xl leading-tight uppercase tracking-wide shadow-md drop-shadow">Hợp chất<br class="md:hidden"/> Hữu cơ</div>
+                <div id="zone-organic" data-type="organic" class="drop-zone flex-1 bg-orange-50 p-2 md:p-4 flex flex-wrap content-start gap-1 md:gap-2 min-h-[150px] md:min-h-[300px]">
+                    <!-- Organic items dropped here -->
+                </div>
+            </div>
+
+            <!-- Chemical Pool (Center on desktop, Bottom on mobile) -->
+            <div class="col-span-2 flex flex-col glass-panel rounded-xl md:rounded-2xl p-2 md:p-4 shadow-sm min-h-[150px] order-3 md:order-2">
+                <div class="text-center text-sm font-semibold text-gray-500 mb-2">Các chất cần phân loại</div>
+                <div id="pool" class="flex flex-wrap justify-center content-start gap-1.5 md:gap-2">
+                    <!-- Cards will be injected here -->
+                </div>
+            </div>
+
+            <!-- Inorganic Zone (Right on desktop, Top-Right on mobile) -->
+            <div class="col-span-1 flex flex-col rounded-xl md:rounded-2xl overflow-hidden shadow-lg border-2 md:border-4 border-emerald-500 order-2 md:order-3">
+                <div class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-extrabold text-center py-2 md:py-4 text-lg md:text-3xl leading-tight uppercase tracking-wide shadow-md drop-shadow">Hợp chất<br class="md:hidden"/> Vô cơ</div>
+                <div id="zone-inorganic" data-type="inorganic" class="drop-zone flex-1 bg-emerald-50 p-2 md:p-4 flex flex-wrap content-start gap-1 md:gap-2 min-h-[150px] md:min-h-[300px]">
+                    <!-- Inorganic items dropped here -->
+                </div>
+            </div>
+            
+        </div>
+    </main>
+
+    <!-- Win Modal -->
+    <div id="winModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl transform scale-95 transition-transform duration-300" id="winModalContent">
+            <div class="text-6xl mb-4">🏆</div>
+            <h2 class="text-3xl font-bold text-blue-600 mb-2">Tuyệt vời!</h2>
+            <p class="text-gray-600 mb-6">Bạn đã hoàn thành trong <span id="finalTime" class="font-bold text-lg text-blue-800"></span> giây.</p>
+            
+            <div id="saveScoreSection">
+                <input type="text" id="playerName" placeholder="Nhập tên của bạn..." class="w-full border-2 border-gray-300 rounded-xl px-4 py-3 mb-4 text-lg focus:outline-none focus:border-blue-500 text-center" maxlength="20">
+                <button id="saveScoreBtn" class="w-full bg-green-500 hover:bg-green-600 text-white font-bold text-xl py-3 rounded-xl shadow-lg transition-colors">Lưu kết quả</button>
+            </div>
+            <div id="saveSuccessMsg" class="hidden text-green-600 font-bold text-lg">Đã lưu kết quả!</div>
+            
+            <button id="playAgainBtn" class="mt-4 text-gray-500 hover:text-blue-600 underline">Chơi lại</button>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div id="lbModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl flex flex-col max-h-[80vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-gray-800">Bảng Xếp Hạng 🥇</h2>
+                <button id="closeLbBtn" class="text-gray-400 hover:text-red-500 text-3xl font-bold leading-none">&times;</button>
+            </div>
+            <div class="overflow-y-auto flex-1">
+                <ul id="lbList" class="divide-y divide-gray-200">
+                    <li class="py-4 text-center text-gray-500">Đang tải...</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Modal -->
+    <div id="startModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
+            <div class="text-6xl mb-4">👨‍🔬</div>
+            <h2 class="text-3xl font-bold text-blue-600 mb-2">Chào mừng!</h2>
+            <p class="text-gray-600 mb-6">Hãy nhập tên của bạn để bắt đầu trò chơi Phân loại Hợp chất.</p>
+            <input type="text" id="startPlayerName" placeholder="Nhập tên của bạn..." class="w-full border-2 border-gray-300 rounded-xl px-4 py-3 mb-4 text-lg focus:outline-none focus:border-blue-500 text-center" maxlength="20">
+            <button id="startGameBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-xl py-3 rounded-xl shadow-lg transition-colors">Bắt đầu chơi</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. DATA CONFIGURATION
+        // ==========================================
+        const chemicalsData = [
+            { id: 'c1', html: 'C<sub>2</sub>H<sub>5</sub>OH', type: 'organic' },
+            { id: 'c2', html: 'CH<sub>2</sub>Cl<sub>2</sub>', type: 'organic' },
+            { id: 'c3', html: 'C<sub>2</sub>H<sub>4</sub>', type: 'organic' },
+            { id: 'c4', html: 'C<sub>2</sub>H<sub>2</sub>', type: 'organic' },
+            { id: 'c5', html: 'CH<sub>4</sub>', type: 'organic' },
+            { id: 'c6', html: 'C<sub>6</sub>H<sub>6</sub>', type: 'organic' },
+            { id: 'c7', html: 'CH<sub>3</sub>COOH', type: 'organic' },
+            { id: 'c8', html: 'CH<sub>3</sub>COONa', type: 'organic' },
+            { id: 'c9', html: 'CH<sub>3</sub>COOC<sub>5</sub>H<sub>11</sub>', type: 'organic' },
+            { id: 'c10', html: 'CH<sub>3</sub>NH<sub>2</sub>', type: 'organic' },
+            { id: 'c11', html: '(C<sub>6</sub>H<sub>10</sub>O<sub>5</sub>)<sub>n</sub>', type: 'organic' },
+            { id: 'c12', html: 'HCHO', type: 'organic' },
+            { id: 'c13', html: 'H<sub>2</sub>N-CH<sub>2</sub>-COOH', type: 'organic' },
+            { id: 'i1', html: 'KOH', type: 'inorganic' },
+            { id: 'i2', html: 'NaHCO<sub>3</sub>', type: 'inorganic' },
+            { id: 'i3', html: 'CaCl<sub>2</sub>', type: 'inorganic' },
+            { id: 'i4', html: 'CO<sub>2</sub>', type: 'inorganic' },
+            { id: 'i5', html: 'KCN', type: 'inorganic' }
+        ];
+
+        let totalItems = chemicalsData.length;
+        let correctlyPlaced = 0;
+
+        // ==========================================
+        // 2. AUDIO SYNTHESIS (Web Audio API)
+        // ==========================================
+        let audioCtx;
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if(audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'correct') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+                gainNode.gain.setValueAtTime(0.5, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.linearRampToValueAtTime(100, now + 0.2);
+                gainNode.gain.setValueAtTime(0.5, now);
+                gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            } else if (type === 'win') {
+                // Play a simple major arpeggio
+                const freqs = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5
+                freqs.forEach((freq, i) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.value = freq;
+                    
+                    const time = now + i * 0.15;
+                    gain.gain.setValueAtTime(0, time);
+                    gain.gain.linearRampToValueAtTime(0.3, time + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+                    
+                    osc.start(time);
+                    osc.stop(time + 0.5);
+                });
+            }
+        }
+
+        // ==========================================
+        // 3. GAME LOGIC & UI
+        // ==========================================
+        const pool = document.getElementById('pool');
+        const zones = document.querySelectorAll('.drop-zone');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const winModal = document.getElementById('winModal');
+        const winModalContent = document.getElementById('winModalContent');
+        const finalTimeSpan = document.getElementById('finalTime');
+        
+        let timerInterval = null;
+        let startTime = 0;
+        let timeElapsed = 0;
+        let isPlaying = false;
+        let currentPlayerName = "";
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function formatTime(ms) {
+            return (ms / 1000).toFixed(1);
+        }
+
+        function startTimer() {
+            if (isPlaying) return;
+            isPlaying = true;
+            startTime = Date.now();
+            timerInterval = setInterval(() => {
+                timeElapsed = Date.now() - startTime;
+                timerDisplay.textContent = formatTime(timeElapsed) + 's';
+            }, 100);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            isPlaying = false;
+        }
+
+        function initGame() {
+            pool.innerHTML = '';
+            document.getElementById('zone-organic').innerHTML = '';
+            document.getElementById('zone-inorganic').innerHTML = '';
+            correctlyPlaced = 0;
+            timeElapsed = 0;
+            timerDisplay.textContent = '00.0s';
+            stopTimer();
+            winModal.classList.add('hidden');
+            document.getElementById('saveScoreSection').style.display = 'block';
+            document.getElementById('saveSuccessMsg').classList.add('hidden');
+            document.getElementById('playerName').value = currentPlayerName; // Điền sẵn tên
+
+            const shuffled = shuffle([...chemicalsData]);
+            
+            shuffled.forEach(chem => {
+                const card = document.createElement('div');
+                // Tối ưu kích thước card: Chữ to và rõ ràng hơn cho học sinh dễ nhìn
+                card.className = 'chem-card bg-white border-2 border-gray-300 text-gray-800 font-bold text-lg md:text-2xl py-2 px-3 md:py-3 md:px-5 rounded-lg md:rounded-xl shadow-sm hover:shadow-md hover:border-blue-400 select-none tracking-wide';
+                card.innerHTML = chem.html;
+                card.dataset.id = chem.id;
+                card.dataset.type = chem.type;
+                
+                // Attach pointer events for custom drag
+                card.addEventListener('pointerdown', handlePointerDown);
+                
+                pool.appendChild(card);
+            });
+        }
+
+        // ==========================================
+        // 4. CUSTOM DRAG AND DROP IMPLEMENTATION
+        // ==========================================
+        let activeEl = null; // The original element being dragged
+        let cloneEl = null;  // The visual clone moving with pointer
+        let currentDropZone = null;
+
+        function handlePointerDown(e) {
+            initAudio(); // Init audio context on first interaction
+            if (!isPlaying) startTimer();
+
+            // Only act on left click or touch
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+            activeEl = e.currentTarget;
+            
+            // Create clone
+            cloneEl = activeEl.cloneNode(true);
+            cloneEl.classList.add('chem-clone');
+            document.body.appendChild(cloneEl);
+            
+            // Set initial position
+            updateClonePosition(e.clientX, e.clientY);
+            
+            // Hide original visually but keep its space
+            activeEl.classList.add('dragging');
+
+            // Add global listeners
+            document.addEventListener('pointermove', handlePointerMove, { passive: false });
+            document.addEventListener('pointerup', handlePointerUp);
+            document.addEventListener('pointercancel', handlePointerUp);
+            
+            // Prevent default to avoid selection/scrolling on mobile
+            if (e.pointerType !== 'mouse') e.preventDefault();
+        }
+
+        function handlePointerMove(e) {
+            if (!cloneEl) return;
+            e.preventDefault(); // Stop scrolling
+
+            updateClonePosition(e.clientX, e.clientY);
+
+            // Find element under pointer
+            cloneEl.style.display = 'none'; // Temporarily hide to find elements underneath
+            const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
+            cloneEl.style.display = 'block';
+
+            // Highlight drop zone
+            const potentialZone = elemBelow ? elemBelow.closest('.drop-zone') : null;
+            
+            if (currentDropZone && currentDropZone !== potentialZone) {
+                currentDropZone.classList.remove('active-hover');
+            }
+            if (potentialZone) {
+                potentialZone.classList.add('active-hover');
+            }
+            currentDropZone = potentialZone;
+        }
+
+        function updateClonePosition(x, y) {
+            if(cloneEl) {
+                cloneEl.style.left = `${x}px`;
+                cloneEl.style.top = `${y}px`;
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (!activeEl || !cloneEl) return;
+
+            // Remove global listeners
+            document.removeEventListener('pointermove', handlePointerMove);
+            document.removeEventListener('pointerup', handlePointerUp);
+            document.removeEventListener('pointercancel', handlePointerUp);
+
+            if (currentDropZone) {
+                currentDropZone.classList.remove('active-hover');
+                
+                const expectedType = currentDropZone.dataset.type;
+                const actualType = activeEl.dataset.type;
+
+                if (expectedType === actualType) {
+                    // Correct!
+                    playSound('correct');
+                    activeEl.classList.remove('dragging');
+                    activeEl.removeEventListener('pointerdown', handlePointerDown); // Lock it
+                    activeEl.classList.remove('cursor-grab', 'hover:border-blue-400');
+                    activeEl.classList.add('cursor-default', 'bg-opacity-50', 'border-transparent');
+                    
+                    // Specific styling based on zone
+                    if (expectedType === 'organic') {
+                        activeEl.classList.add('bg-yellow-200', 'text-yellow-900');
+                        activeEl.classList.remove('bg-white');
+                    } else {
+                        activeEl.classList.add('bg-green-200', 'text-green-900');
+                        activeEl.classList.remove('bg-white');
+                    }
+
+                    // Add pop animation
+                    activeEl.classList.add('pop-anim');
+                    activeEl.addEventListener('animationend', (e) => e.target.classList.remove('pop-anim'), {once:true});
+
+                    currentDropZone.appendChild(activeEl);
+                    correctlyPlaced++;
+
+                    checkWin();
+                } else {
+                    // Wrong!
+                    playSound('wrong');
+                    activeEl.classList.remove('dragging');
+                    activeEl.classList.add('shake-anim', 'border-red-500', 'text-red-500');
+                    
+                    const wrongEl = activeEl; // Lưu trữ tham chiếu riêng cho timeout
+                    setTimeout(() => {
+                        if(wrongEl) wrongEl.classList.remove('shake-anim', 'border-red-500', 'text-red-500');
+                    }, 400);
+                }
+            } else {
+                // Dropped outside, just revert
+                activeEl.classList.remove('dragging');
+            }
+
+            // Cleanup clone
+            cloneEl.remove();
+            cloneEl = null;
+            activeEl = null;
+            currentDropZone = null;
+        }
+
+        function checkWin() {
+            if (correctlyPlaced === totalItems) {
+                stopTimer();
+                playSound('win');
+                setTimeout(() => {
+                    finalTimeSpan.textContent = formatTime(timeElapsed);
+                    winModal.classList.remove('hidden');
+                    winModal.classList.add('flex');
+                    winModalContent.classList.remove('scale-95');
+                    winModalContent.classList.add('scale-100');
+                }, 500);
+            }
+        }
+
+        // ==========================================
+        // 5. FIREBASE INTEGRATION (Leaderboard)
+        // ==========================================
+        let db;
+        let auth;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chem-game-mythos';
+        const lbPath = `artifacts/${appId}/public/data/leaderboard`;
+
+        async function initFirebase() {
+            try {
+                const firebaseConfig = typeof __firebase_config !== 'undefined' 
+                    ? JSON.parse(__firebase_config) 
+                    : null;
+                
+                if (!firebaseConfig) {
+                    console.log("No Firebase config found. Local mode only.");
+                    return;
+                }
+
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Authenticate first!
+                const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                if (initialToken) {
+                    await signInWithCustomToken(auth, initialToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                setupLeaderboardListener();
+
+            } catch (err) {
+                console.error("Firebase init failed:", err);
+            }
+        }
+
+        function setupLeaderboardListener() {
+            if (!auth || !auth.currentUser) return;
+            
+            const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+            
+            // Strict Rule: No complex queries (orderBy, limit). Fetch all and sort in memory.
+            onSnapshot(lbRef, (snapshot) => {
+                let scores = [];
+                snapshot.forEach(doc => {
+                    scores.push({ id: doc.id, ...doc.data() });
+                });
+                
+                // Sort ascending by time (lower is better)
+                scores.sort((a, b) => a.time - b.time);
+                // Take top 10
+                scores = scores.slice(0, 10);
+                
+                renderLeaderboard(scores);
+            }, (error) => {
+                console.error("Leaderboard fetch error:", error);
+            });
+        }
+
+        async function saveScore(name, timeMs) {
+            if (!auth || !auth.currentUser || !name.trim()) return false;
+            try {
+                const lbRef = collection(db, 'artifacts', appId, 'public', 'data', 'leaderboard');
+                await addDoc(lbRef, {
+                    name: name.trim(),
+                    time: timeMs,
+                    timestamp: serverTimestamp()
+                });
+                return true;
+            } catch (err) {
+                console.error("Save score error:", err);
+                return false;
+            }
+        }
+
+        function renderLeaderboard(scores) {
+            const list = document.getElementById('lbList');
+            list.innerHTML = '';
+            
+            if (scores.length === 0) {
+                list.innerHTML = '<li class="py-4 text-center text-gray-500">Chưa có ai trong bảng xếp hạng. Hãy là người đầu tiên!</li>';
+                return;
+            }
+
+            scores.forEach((score, index) => {
+                const li = document.createElement('li');
+                li.className = 'py-3 flex justify-between items-center';
+                
+                let medal = `${index + 1}. `;
+                if (index === 0) medal = '🥇 ';
+                if (index === 1) medal = '🥈 ';
+                if (index === 2) medal = '🥉 ';
+
+                li.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold w-6 text-gray-500">${medal}</span>
+                        <span class="font-semibold text-gray-800">${escapeHtml(score.name)}</span>
+                    </div>
+                    <div class="font-mono text-blue-600 font-bold">${formatTime(score.time)}s</div>
+                `;
+                list.appendChild(li);
+            });
+        }
+
+        function escapeHtml(unsafe) {
+            return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        // UI Event Listeners
+        document.getElementById('startGameBtn').addEventListener('click', () => {
+            const nameInput = document.getElementById('startPlayerName');
+            const name = nameInput.value.trim();
+            if (!name) {
+                nameInput.classList.add('border-red-500', 'shake-anim');
+                setTimeout(() => nameInput.classList.remove('border-red-500', 'shake-anim'), 400);
+                return;
+            }
+            
+            // Lưu tên và điền vào ô kết quả
+            currentPlayerName = name;
+            document.getElementById('playerName').value = name;
+            
+            // Ẩn modal bắt đầu
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('startModal').classList.remove('flex');
+            
+            // Khởi tạo âm thanh (yêu cầu tương tác người dùng)
+            initAudio();
+        });
+
+        document.getElementById('playAgainBtn').addEventListener('click', () => {
+            initGame();
+        });
+
+        document.getElementById('saveScoreBtn').addEventListener('click', async () => {
+            const nameInput = document.getElementById('playerName');
+            const name = nameInput.value;
+            if (!name) {
+                nameInput.classList.add('border-red-500', 'shake-anim');
+                setTimeout(() => nameInput.classList.remove('border-red-500', 'shake-anim'), 400);
+                return;
+            }
+
+            const btn = document.getElementById('saveScoreBtn');
+            btn.disabled = true;
+            btn.textContent = 'Đang lưu...';
+
+            const success = await saveScore(name, timeElapsed);
+            
+            if (success) {
+                document.getElementById('saveScoreSection').style.display = 'none';
+                document.getElementById('saveSuccessMsg').classList.remove('hidden');
+                
+                // Show leaderboard after saving
+                setTimeout(() => {
+                    winModal.classList.add('hidden');
+                    document.getElementById('lbModal').classList.remove('hidden');
+                    document.getElementById('lbModal').classList.add('flex');
+                }, 1500);
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Thử lại';
+                // Fallback UI if offline or no DB
+                alert("Lưu thất bại (Có thể do chế độ offline).");
+            }
+        });
+
+        document.getElementById('leaderboardBtn').addEventListener('click', () => {
+            document.getElementById('lbModal').classList.remove('hidden');
+            document.getElementById('lbModal').classList.add('flex');
+        });
+
+        document.getElementById('closeLbBtn').addEventListener('click', () => {
+            document.getElementById('lbModal').classList.add('hidden');
+            document.getElementById('lbModal').classList.remove('flex');
+        });
+
+        // Add event listener for Reset button
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            initGame();
+        });
+
+        // Block context menu on mobile long press
+        window.oncontextmenu = function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+        };
+
+        // Initialize
+        initGame();
+        initFirebase();
+
+    </script>
+</body>
+</html>
